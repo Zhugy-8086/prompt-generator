@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eliza 反射引擎 · IE11 精简版 v8.8.1</title>
+<style>
+  body { font-family: "Microsoft YaHei", SimHei, sans-serif; background: #f0f0f0; color: #333; padding: 15px; margin: 0; }
+  .wrap { max-width: 780px; margin: 0 auto; background: #fff; border: 1px solid #ccc; padding: 20px; }
+  h2 { margin-top: 0; font-size: 18px; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 10px; }
+  textarea { width: 100%; height: 140px; font-size: 14px; border: 1px solid #aaa; padding: 6px; box-sizing: border-box; resize: vertical; }
+  .btn-group { margin: 10px 0; }
+  button { padding: 8px 20px; margin-right: 8px; margin-bottom: 4px; font-size: 13px; cursor: pointer; background: #4a6fa5; color: white; border: none; border-radius: 3px; }
+  button:hover { background: #37527a; }
+  button.secondary { background: #888; }
+  button.secondary:hover { background: #666; }
+  button.primary { background: #2c7a4d; }
+  button.primary:hover { background: #1e5a38; }
+  .result-box { background: #fafafa; border: 1px solid #ddd; padding: 12px; min-height: 40px; max-height: 340px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; line-height: 1.7; }
+  .tag { display: inline-block; background: #e6eef8; padding: 2px 10px; margin: 3px 5px; border-radius: 3px; font-size: 13px; }
+  .tag.foreshadow { background: #f3e8ff; border: 1px dashed #8b5cf6; }
+  .tag.ellipsis { background: #fef3c7; border: 1px dashed #d97706; }
+  .tag.mood-shift { background: #fce4ec; border: 1px dashed #ef4444; }
+  .tag.composite { background: #d1fae5; border: 1px solid #10b981; }
+  .stats { font-size: 11px; color: #999; margin-top: 6px; }
+  hr { border: none; border-top: 1px solid #eee; margin: 12px 0; }
+  .section-label { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .switch-group { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 8px; background: #f5f5f5; border-radius: 4px; margin-bottom: 10px; font-size: 12px; color: #666; }
+  .switch-group label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .proto-panel { background: #f9f3e0; border-left: 4px solid #f39c12; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; font-size: 13px; }
+  .proto-panel input { width: 120px; margin: 0 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>🪞 Eliza 反射引擎（IE11 精简版 v8.8.1）</h2>
+  <p class="subtitle">标准提取 · 反射提取 · 综合模式（手动主角设定） · 伏笔异常 · 省略号/乱码</p>
+  <div id="fallbackNotice" style="display:none;background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:0.85rem;color:#856404;"></div>
+
+  <!-- 功能开关 -->
+  <div class="switch-group">
+    <span style="font-weight:bold;">功能开关:</span>
+    <label><input type="checkbox" id="enableReflect" checked> 反射</label>
+    <label><input type="checkbox" id="enableForeshadow" checked> 伏笔</label>
+    <label><input type="checkbox" id="enableSilence" checked> 乱码</label>
+  </div>
+
+  <!-- 综合模式手动主角设定 -->
+  <div class="proto-panel" id="compositePanel">
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <span><strong>🎭 综合模式主角设定</strong></span>
+      <label>主角名: <input type="text" id="protagName" value="叶凡" style="width:80px;"></label>
+      <label>种族: <input type="text" id="protagSpecies" value="人族" style="width:80px;"></label>
+      <label>等级: <input type="text" id="protagLevel" value="元婴期" style="width:100px;"></label>
+      <label><input type="checkbox" id="compositeInject"> 启用上下文注入（综合模式）</label>
+    </div>
+  </div>
+
+  <textarea id="inputText" placeholder="在此粘贴文学片段。例如：
+叶凡推开门，所有人的目光齐刷刷看来。
+他突破了元婴期。
+她眼中含泪，凝视着远方。"></textarea>
+
+  <div class="btn-group">
+    <button onclick="app.doStandard()">📋 标准提取</button>
+    <button onclick="app.doReflect()">🪞 反射提取</button>
+    <button onclick="app.doComposite()" class="primary">🔀 综合提取（主角定向反射）</button>
+    <button onclick="app.doForeshadow()" class="secondary">📌 伏笔异常扫描</button>
+    <button onclick="app.doSilence()" class="secondary">💬 无语/乱码分析</button>
+    <button onclick="app.doFullAnalysis()">🔍 全量分析</button>
+  </div>
+
+  <div class="result-box" id="resultDisplay"></div>
+  <div class="stats" id="statsDisplay"></div>
+</div>
+
+<script>
+// ==================== IE11 Polyfills ====================
+if (!String.prototype.includes) {
+  String.prototype.includes = function(search, start) { return this.indexOf(search, start || 0) !== -1; };
+}
+if (!String.prototype.startsWith) {
+  String.prototype.startsWith = function(search, pos) { return this.substr(pos || 0, search.length) === search; };
+}
+if (!Array.isArray) {
+  Array.isArray = function(arg) { return Object.prototype.toString.call(arg) === '[object Array]'; };
+}
+if (!Array.from) {
+  Array.from = function(arrLike) { return Array.prototype.slice.call(arrLike); };
+}
+if (!Object.assign) {
+  Object.assign = function(target) { for (var i=1; i<arguments.length; i++) { var src=arguments[i]; for (var k in src) { if (Object.prototype.hasOwnProperty.call(src,k)) target[k]=src[k]; } } return target; };
+}
+if (window.NodeList && !NodeList.prototype.forEach) {
+  NodeList.prototype.forEach = Array.prototype.forEach;
+}
+
+// ==================== 模块化命名空间（兼容 IE11） ====================
+var app = (function() {
+  // ---------- 词库（静态，同原版，略加扩充）----------
+  var DICTIONARY = {
+    scene_nature: ['森林','城堡','沙漠','海洋','湖泊','星空','月亮','太阳','云海','瀑布','山谷','洞穴'],
+    ancient_scene: ['大厅','朝堂','御书房','王府','军营','校场','祠堂','寺庙','道观','驿站','茶楼'],
+    objects: ['剑','刀','法杖','魔杖','匕首','长枪','弓','翅膀','龙','凤凰','精灵','妖兽','法宝','丹药'],
+    characters: ['少女','少年','老人','战士','法师','刺客','书生','女王','王子','公主','剑客','游侠'],
+    actions: ['转身','抬手','低头','抬头','回头','回眸','跪下','磕头','鞠躬','拱手','作揖','抱拳','拔剑','挥剑'],
+    emotions: ['微笑','大笑','苦笑','冷笑','愤怒','悲伤','恐惧','孤独','绝望','希望','温暖','紧张','感动'],
+    atmosphere: ['晨曦','暮色','夜色','月夜','星河','夕阳','黄昏','黎明','薄雾','浓雾','光晕','逆光'],
+    cthulhu_horror: ['克苏鲁','古神','旧日','触手','黏液','畸变','低语','疯狂','san值','恐怖','诡异','诅咒'],
+    cyberpunk: ['赛博','霓虹','义体','植入体','脑机','黑客','数据流','全息','AI','芯片','机械臂','机甲'],
+    system_error: ['系统','错误','崩溃','宕机','蓝屏','死机','重启','故障','异常','堆栈','溢出','内存'],
+    modern_life: ['加班','996','内卷','躺平','外卖','咖啡','便利店','手机','直播','弹幕','裁员']
+  };
+  var ALL_WORDS = {};
+  for (var cat in DICTIONARY) {
+    var arr = DICTIONARY[cat];
+    for (var i=0; i<arr.length; i++) ALL_WORDS[arr[i]] = true;
+  }
+  var stopWords = { '一个':1,'这个':1,'那个':1,'他们':1,'没有':1,'什么':1,'自己':1,'还是':1,'不过':1,'可以':1,'然后':1,'之后':1,'已经':1,'忽然':1,'觉得':1,'刚才':1,'现在':1,'最后':1,'只是':1,'一样':1,'着':1,'了':1,'过':1,'的':1,'是':1,'在':1,'被':1,'让':1,'把':1,'从':1,'给':1,'对':1,'啊':1,'吧':1,'呢':1,'吗':1,'哦':1,'嗯':1,'笑道':1,'说道':1,'问道':1,'喊道':1,'答道':1 };
+  var NOISE_WORDS = { '哈哈':1,'呵呵':1,'嘿嘿':1,'嘻嘻':1,'嗯嗯':1,'哦哦':1,'哎呀':1,'哎哟':1,'啊呀':1,'是吧':1,'对吧':1,'好吗':1,'行吧':1,'好的':1,'是的':1,'没错':1 };
+  
+  // 同义词组
+  var synonymGroups = [
+    ['泪','眼泪','泪水','泪珠','泪光','含泪','泪眼'],
+    ['微笑','笑容','笑意','含笑','笑'],
+    ['凝视','注视','望着','凝望','眺望','望向'],
+    ['孤独','独自','孤单','寂寞','孑然'],
+    ['黄昏','暮色','日落','傍晚','夕阳'],
+    ['清晨','黎明','拂晓','晨曦','破晓']
+  ];
+  function getSynonymRep(word) {
+    for (var g=0; g<synonymGroups.length; g++) {
+      var grp = synonymGroups[g];
+      for (var i=0; i<grp.length; i++) {
+        if (word.indexOf(grp[i])!==-1 || grp[i].indexOf(word)!==-1) return grp[0];
+      }
+    }
+    return word;
+  }
+  function addWithDedup(arr, item) {
+    if (!item || item.length<2) return false;
+    var cleaned = item.trim();
+    if (cleaned.length<2) return false;
+    var rep = getSynonymRep(cleaned);
+    for (var i=0; i<arr.length; i++) {
+      if (getSynonymRep(arr[i]) === rep) return false;
+    }
+    arr.push(item);
+    return true;
+  }
+
+  // 变体池管理
+  var poolUsage = {};
+  function pickFromPool(rule, ruleIdx) {
+    if (!rule.pool || rule.pool.length===0) return (typeof rule.reflect==='function') ? rule.reflect('',[]) : '';
+    var used = poolUsage[ruleIdx] || [];
+    for (var i=0; i<rule.pool.length; i++) {
+      if (used.indexOf(i)===-1) {
+        used.push(i);
+        poolUsage[ruleIdx] = used;
+        return rule.pool[i];
+      }
+    }
+    poolUsage[ruleIdx] = [0];
+    return rule.pool[0];
+  }
+
+  // 辅助函数
+  function extractAfter(text, keyword, maxLen) {
+    var idx = text.indexOf(keyword);
+    if (idx===-1) return '';
+    var after = text.substring(idx+keyword.length).replace(/[，。！？、；：""''「」『』\s]/g,'');
+    return after.length>0 ? after.substring(0, Math.min(after.length, maxLen||4)) : '';
+  }
+  function extractBeforeOrAfter(text, keyword, maxLen) {
+    var idx = text.indexOf(keyword);
+    if (idx===-1) return '';
+    var before = text.substring(Math.max(0, idx-(maxLen||4)), idx).replace(/[，。！？、；：""''「」『』\s]/g,'');
+    if (before.length>=2) return before;
+    return extractAfter(text,keyword,maxLen||4);
+  }
+  function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function isNormalSpeech(txt) { return /[\u4e00-\u9fff]{4,}/.test(txt) && !/[.。]{3,}|…{2,}/.test(txt); }
+  function extractName(txt) {
+    var m = txt.match(/^([\u4e00-\u9fff]{1,6})\s*[：:]\s*$/);
+    if (m) return m[1];
+    m = txt.match(/^([\u4e00-\u9fff]{1,6})[.。]{3,}$/);
+    if (m) return m[1];
+    return null;
+  }
+
+  // ========== 规则库（同原版，保持完整）==========
+  var builtinRules = [
+    { pattern: /(?:走进|踏入|步入|闯入|闪现|出现)(?:了|来|去|在|到)?(?:一[个位名]|眼前|房中|厅中|林中|场上)?/, priority:7, reflect:function(s){ if(/和尚|僧人|禅师/.test(s)) return '黑衣僧人步入的瞬间'; if(/将军|元帅/.test(s)) return '将军入场的瞬间'; if(/皇帝|陛下/.test(s)) return '圣驾降临的瞬间'; if(/少年|孩子|童子/.test(s)) return '少年突然出现'; if(/女子|少女|姑娘/.test(s)) return '女子步入的刹那'; if(/刺客|蒙面/.test(s)) return '暗影中的来者'; return '不速之客的到来';} },
+    { pattern: /对峙|怒视|对抗|僵持|谁也(?:不|没)/, priority:6, pool:['紧张的对峙瞬间','剑拔弩张的僵持','谁也不肯退让的对视','一触即发的冲突','空气凝固的对峙'], reflect:function(){return this.pool[0];} },
+    { pattern: /(?:拔|抽出|亮出|拔出)(?:了)?(?:长剑|利剑|刀|弯刀|匕首)/, priority:7, pool:['拔剑的刹那——寒光出鞘','刀锋出鞘的一闪','剑刃映出人影的倒影','利刃出鞘，杀气骤现'], reflect:function(){return this.pool[0];} },
+    { pattern: /冷笑一声|冷哼一声/, priority:4, reflect:function(){return '轻蔑冷笑的瞬间';} },
+    { pattern: /醍醐灌顶|恍然大悟|突然明白|豁然开朗|幡然醒悟/, priority:8, pool:['醍醐灌顶的顿悟瞬间','豁然开朗的眼神','如梦初醒的表情定格'], reflect:function(){return this.pool[0];} },
+    { pattern: /遍体生寒|毛骨悚然|背脊发凉|不寒而栗/, priority:8, pool:['脊背发凉的恐惧','毛骨悚然的寒意','一股寒意爬上背脊'], reflect:function(){return this.pool[0];} },
+    { pattern: /脸色.*(?:变|沉|僵|白|青)/, priority:5, reflect:function(){return '脸色骤变的瞬间';} },
+    { pattern: /(?:忽然|突然|猛地|蓦地|陡然)(?:想|记|发|意识|醒|明白)/, priority:6, reflect:function(){return '猛然醒悟的瞬间';} },
+    { pattern: /(?:不敢|无法|难以)(?:相信|置信|想象)/, priority:5, pool:['难以置信的眼神','震惊凝滞的刹那','世界仿佛静止的瞬间'], reflect:function(){return this.pool[0];} },
+    { pattern: /落针可闻|鸦雀无声|寂静无声|屏息/, priority:5, pool:['落针可闻的寂静','连呼吸都凝滞的安静','针落有声的死寂'], reflect:function(){return this.pool[0];} },
+    { pattern: /山雨欲来/, priority:5, reflect:function(){return '山雨欲来的压迫感';} },
+    { pattern: /眼泪.*(?:夺眶|滑落|流下|滚落)/, priority:6, pool:['泪水夺眶而出的瞬间','泪珠滑落的特写','眼眶再也兜不住的决堤','一滴泪砸在地面的慢镜头'], reflect:function(){return this.pool[0];} },
+    { pattern: /忍着.*泪|忍住.*泪/, priority:6, reflect:function(){return '强忍泪水的隐忍';} },
+    { pattern: /泪水/, priority:5, pool:['含泪的眼眸','闪烁的泪光'], reflect:function(){return this.pool[0];} },
+    { pattern: /微笑/, priority:4, pool:['温暖的微笑','嘴角扬起的弧度','眼底浮现的笑意'], reflect:function(){return this.pool[0];} },
+    { pattern: /苦笑/, priority:4, reflect:function(){return '苦涩的笑容';} },
+    { pattern: /(望着|凝视|注视|眺望|望向)(?:着)?(?:那|远方的|远处的)?([\u4e00-\u9fff]{2,6})?/, priority:4, reflect:function(s,m){return '望向'+(m[2]||'远方')+'的凝视';} },
+    { pattern: /回眸/, priority:4, reflect:function(){return '回眸的一瞬';} },
+    { pattern: /独自/, priority:3, reflect:function(s){return '孤独的'+extractAfter(s,'独自',4);} },
+    { pattern: /沉默/, priority:3, reflect:function(s){return '沉默的'+extractBeforeOrAfter(s,'沉默',4);} },
+    { pattern: /疲惫/, priority:3, reflect:function(s){return '疲惫的'+extractBeforeOrAfter(s,'疲惫',4);} },
+    { pattern: /黄昏/, priority:2, reflect:function(){return '黄昏的余晖';} },
+    { pattern: /黎明/, priority:2, reflect:function(){return '黎明的微光';} },
+    { pattern: /深夜/, priority:2, reflect:function(){return '深夜的寂静';} },
+    { pattern: /雨/, priority:3, condition:function(s){return /淅沥|滂沱|绵绵/.test(s);}, reflect:function(s){return '雨中'+extractAfter(s,'雨',3);} },
+    { pattern: /雪/, priority:3, condition:function(s){return /飘落|纷飞|皑皑/.test(s);}, reflect:function(s){return '雪中'+extractAfter(s,'雪',3);} },
+    { pattern: /战场/, priority:4, reflect:function(){return '硝烟弥漫的战场';} },
+    { pattern: /王座/, priority:4, reflect:function(){return '空荡的王座';} },
+    { pattern: /背叛/, priority:4, reflect:function(){return '背叛的阴影';} },
+    { pattern: /牺牲/, priority:4, reflect:function(){return '牺牲的悲壮';} },
+    { pattern: /江山|天下|社稷/, priority:4, reflect:function(){return '天下苍生的重担';} },
+    { pattern: /末日|浩劫|灾变/, priority:5, reflect:function(){return '末日降临的景象';} },
+    { pattern: /破防|崩溃|撑不住/, priority:5, reflect:function(){return '崩溃边缘的瞬间';} },
+    { pattern: /燃|热血|沸腾|炸裂/, priority:5, reflect:function(){return '高燃时刻——逆光中的剪影';} }
+  ];
+  var contextRules = [
+    { patternA: /(?:推门|踹门|撞门|闯入|踏入|步入|走进)/, patternB: /(?:目光|齐刷刷|看去|望来|转头|齐|全|都|皆)/, reflect:function(sA){ var m=sA.match(/[\u4e00-\u9fff]{2,3}(?=推门|踹门|撞门|闯入|踏入|步入|走进)/); return (m?m[0]:'他')+'推门而入的瞬间——承受所有人的目光';} },
+    { patternA: /(?:拔剑|拔刀|拔|抽出|亮出)/, patternB: /(?:后退|退后|哗然|惊呼|倒吸|骚动)/, reflect:function(){return '拔剑的刹那——人群后退的涟漪';} },
+    { patternA: /(?:沉默|寂静|鸦雀无声|落针可闻|屏息)/, patternB: /(?:突然|忽然|猛地|一声|响起|传来|打破)/, reflect:function(){return '寂静被打破的瞬间';} },
+    { patternA: /(?:回眸|回头|转身)(?:一|看|望|来|去)?/, patternB: /(?:正好|恰好|撞上|对上了|迎上)(?:了|的|那|他|她)?(?:目光|视线|眼睛)/, reflect:function(){return '回眸的刹那，视线撞上的定格';} }
+  ];
+
+  // 反射提取（单句+上下文）
+  function reflectExtract(text) {
+    var sentences = text.split(/[。！？\n]+/).filter(function(s){ return s.trim().length>0; });
+    var results = [];
+    for (var i=0; i<sentences.length; i++) {
+      var s = sentences[i].trim();
+      if (!s) continue;
+      var candidates = [];
+      for (var r=0; r<builtinRules.length; r++) {
+        var rule = builtinRules[r];
+        if (rule.condition && !rule.condition(s)) continue;
+        var m = s.match(rule.pattern);
+        if (m) {
+          var out = (rule.pool && rule.pool.length) ? pickFromPool(rule, r) : (typeof rule.reflect==='function' ? rule.reflect(s,m) : '');
+          if (out && out.length>=2 && out.indexOf('与')===-1) candidates.push({text:out, priority:rule.priority||0});
+        }
+      }
+      candidates.sort(function(a,b){return b.priority-a.priority;});
+      var keep = s.length>20 ? 2 : 1;
+      for (var c=0; c<Math.min(candidates.length,keep); c++) addWithDedup(results, candidates[c].text);
+      if (i<sentences.length-1) {
+        var sB = sentences[i+1].trim();
+        for (var ci=0; ci<contextRules.length; ci++) {
+          var cr = contextRules[ci];
+          if (cr.patternA.test(s) && cr.patternB.test(sB)) { addWithDedup(results, cr.reflect(s,sB)); break; }
+        }
+      }
+    }
+    return results;
+  }
+
+  // 标准提取
+  function standardExtract(text) {
+    var found = [], map = {};
+    var tokens = text.split(/[，。！？；：、\s"「」『』“”\n\r]+/);
+    for (var i=0; i<tokens.length; i++) {
+      var t = tokens[i];
+      if (t.length<2 || stopWords[t] || NOISE_WORDS[t]) continue;
+      if (ALL_WORDS[t] && !map[t]) { map[t]=true; found.push(t); }
+    }
+    if (found.length<8) {
+      var sentences = text.split(/[。！？；\n，,、\s]+/);
+      for (var j=0; j<sentences.length && found.length<15; j++) {
+        var raw = sentences[j].replace(/[，,；;：:。！？\?！、\s]+/g,'');
+        var segs = raw.match(/[\u4e00-\u9fff]{2,4}/g);
+        if (segs) {
+          for (var k=0; k<segs.length && found.length<15; k++) {
+            if (!stopWords[segs[k]] && !NOISE_WORDS[segs[k]] && !map[segs[k]]) { map[segs[k]]=true; found.push(segs[k]); }
+          }
+        }
+      }
+    }
+    return found.slice(0,25);
+  }
+
+  // 伏笔扫描（简版，同等原版）
+  function isQuoted(text,word){ var safe=word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); return new RegExp('[""][^""]*'+safe+'[^""]*[""]').test(text) || new RegExp('[\u201c][^\u201d]*'+safe+'[^\u201d]*[\u201d]').test(text); }
+  function isOverModified(text,word){ var over=/诡异|莫名|奇怪|说不出|异样|不对劲|不知为何|总觉得|隐约/; var idx=text.indexOf(word); if(idx===-1) return false; var win=text.substring(Math.max(0,idx-15), Math.min(text.length, idx+word.length+15)); return over.test(win); }
+  function isPerspectiveFocus(text){ return /谁也没注意到|没人发现|没有人看到|不曾有人|如果有人回头|殊不知|他不知道的是|他没想到|如果他知道|后来的事实证明/.test(text); }
+  function isConditionalHint(text){ return /如果.{2,10}(?:知道|明白|想|回忆|记).{2,20}/.test(text) || /.{2,10}(?:还不知道|没想到|没发现|没注意).{2,20}/.test(text); }
+  function hasExplanation(text,word){ var safe=word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); return new RegExp(safe+'[是为即指乃].{2,20}').test(text) || new RegExp('.{2,10}(?:意为|指的是|就是说|换句话说).{0,10}'+safe).test(text) || new RegExp(safe+'(?:是|指|即|乃|就是|的意思)').test(text); }
+  function extractMood(text){ var moods={悲伤:/悲伤|流泪|哭泣|哀伤/,恐惧:/恐惧|恐怖|害怕|惊恐/,紧张:/紧张|僵持|一触即发/,平静:/平静|安静|宁静/,诡异:/诡异|奇怪|异样/,温暖:/温暖|温馨|微笑|治愈/}; var best='平静', bestScore=0; for(var m in moods){ var matches=text.match(moods[m]); var score=matches?matches.length:0; if(score>bestScore){ bestScore=score; best=m; } } return best; }
+  function foreshadowScan(text){
+    var tokens=text.split(/[，。！？、；：\s"「」『』“”\n\r]+/);
+    var freq={}, pos={}, charCount=0;
+    for(var i=0;i<tokens.length;i++){ var w=tokens[i]; if(w.length<2||w.length>6||stopWords[w]||NOISE_WORDS[w]){ charCount+=w.length+1; continue; } freq[w]=(freq[w]||0)+1; if(!pos[w]) pos[w]=[]; pos[w].push(charCount); charCount+=w.length+1; }
+    var res=[];
+    for(var w in freq){ if(freq[w]<2) continue; var score=0, reasons=[]; if(isQuoted(text,w)){ score+=0.1; reasons.push('引号'); } if(isOverModified(text,w)){ score+=0.25; reasons.push('修饰'); } if(isPerspectiveFocus(text)){ score+=0.2; reasons.push('视角'); } if(isConditionalHint(text)){ score+=0.15; reasons.push('条件'); } if(!hasExplanation(text,w)){ score+=0.2; reasons.push('未解释'); } if(score>=0.3) res.push({word:w,count:freq[w],firstPos:pos[w][0],anomalyScore:Math.min(score,1),reasons:reasons,mood:extractMood(text)}); }
+    res.sort(function(a,b){return b.anomalyScore-a.anomalyScore;});
+    return res.slice(0,15);
+  }
+
+  // 省略号/乱码分析（保留原版能力，略简化）
+  function silenceAndGibberishAnalyze(text){
+    var sentences = text.split(/[。！？\n]+/).filter(function(s){return s.trim().length>0;});
+    var themes = {
+      cthulhu: /克苏鲁|古神|不可名状|低语|呓语|疯狂|san值|触手/.test(text),
+      cyberpunk: /赛博|数据流|黑客|义体|脑机|全息|AI|植入体/.test(text),
+      horror: /恐怖|鬼魂|诅咒|闹鬼|阴森|灵异/.test(text),
+      systemError: /系统错误|崩溃|宕机|故障|异常|报错|蓝屏/.test(text)
+    };
+    var results = [];
+    for(var i=0; i<sentences.length-1; i++){
+      var A=sentences[i].trim(), B=sentences[i+1].trim();
+      var isEllipsisA = /^[\u4e00-\u9fff]{1,6}[：:]\s*[.。]{3,}$/.test(A) || /^[\u4e00-\u9fff]{1,6}[.。]{3,}$/.test(A) || /^[.。]{3,}$/.test(A) || /^…{2,}$/.test(A);
+      var isEllipsisB = /^[\u4e00-\u9fff]{1,6}[：:]\s*[.。]{3,}$/.test(B) || /^[\u4e00-\u9fff]{1,6}[.。]{3,}$/.test(B) || /^[.。]{3,}$/.test(B) || /^…{2,}$/.test(B);
+      if(isEllipsisA && isEllipsisB){
+        var nameA = extractName(A)||'某人', nameB = extractName(B)||'某人';
+        var msg = '';
+        if(themes.cthulhu) msg = nameA+'与'+nameB+'在古神的低语中失去了言语';
+        else if(themes.cyberpunk) msg = nameA+'与'+nameB+'的通讯频道只剩白噪音';
+        else if(themes.horror) msg = nameA+'与'+nameB+'同时沉默了——有什么东西让他们不敢开口';
+        else msg = nameA+'与'+nameB+'相对无言';
+        results.push({text:msg, type:'ellipsis'});
+        i++; continue;
+      }
+      if(/[\u4e00-\u9fff]{1,6}[：:]\s*[▇▆▅▄▃▂▁█▉▊▋▌▍▎▏]{4,}$/.test(A)){
+        var n = (A.match(/^([\u4e00-\u9fff]{1,6})[：:]/)||[])[1]||'某人';
+        if(themes.horror) results.push({text:'记录被黑色方块覆盖——'+n+'的话语被抹去', type:'gibberish'});
+        else if(themes.cthulhu) results.push({text:n+'的发言被古神抹除', type:'gibberish'});
+        continue;
+      }
+      if(/[\u4e00-\u9fff]{1,6}[：:]\s*[#&%$@!]{4,}$/.test(A)){
+        var u = (A.match(/^([\u4e00-\u9fff]{1,6})[：:]/)||[])[1]||'用户';
+        if(themes.cyberpunk) results.push({text:u+'的脑机接口遭到入侵——输出乱码', type:'gibberish'});
+        else results.push({text:u+'发送了一串无法识别的符号', type:'gibberish'});
+        continue;
+      }
+      if(/^0x[0-9A-Fa-f]{8,}$/.test(A)){
+        if(themes.cyberpunk) results.push({text:'内存转储——十六进制错误码背后的真相被掩盖', type:'gibberish'});
+        continue;
+      }
+    }
+    return results;
+  }
+
+  // ========== 综合模式后处理（主角定向反射）==========
+  function applyCompositePostProcessing(reflectItems, protagName, protagSpecies, protagLevel) {
+    if (!protagName) return reflectItems;
+    var processed = [];
+    for (var i=0; i<reflectItems.length; i++) {
+      var item = reflectItems[i];
+      var newText = item;
+      // 替换模糊代词
+      if (newText.indexOf('他') !== -1 && !newText.indexOf(protagName)!==-1) {
+        newText = newText.replace(/他/g, protagName);
+      }
+      if (newText.indexOf('她') !== -1) newText = newText.replace(/她/g, protagName);
+      // 匹配突破、晋升等并加等级
+      if (protagLevel && /突破|晋升|进阶|升级/.test(newText)) {
+        newText = newText.replace(/(的瞬间|的刹那|——)/, protagLevel + '的$1');
+      }
+      // 匹配凝视并加种族
+      if (protagSpecies && /凝视|注视/.test(newText)) {
+        newText = newText.replace(/的凝视/, protagSpecies + '的凝视');
+      }
+      processed.push(newText);
+    }
+    return processed;
+  }
+
+  // 综合模式入口
+  function compositeExtract(text, protagName, protagSpecies, protagLevel, enableInject) {
+    if (!document.getElementById('enableReflect').checked) return [];
+    var finalText = text;
+    if (enableInject && (protagName || protagSpecies || protagLevel)) {
+      var prefix = '';
+      if (protagName) prefix += '[主角:'+protagName+']';
+      if (protagSpecies) prefix += '[种族:'+protagSpecies+']';
+      if (protagLevel) prefix += '[等级:'+protagLevel+']';
+      if (prefix) finalText = prefix + '\n' + text;
+    }
+    poolUsage = {};
+    var items = reflectExtract(finalText);
+    if (protagName || protagSpecies || protagLevel) {
+      items = applyCompositePostProcessing(items, protagName, protagSpecies, protagLevel);
+    }
+    return items;
+  }
+
+  // ========== UI 显示 ==========
+  function displayResults(items, type, extraStats) {
+    var outputDiv = document.getElementById('resultDisplay');
+    var statsDiv = document.getElementById('statsDisplay');
+    if (!items || items.length===0) {
+      outputDiv.innerHTML = '<span style="color:#999;">（未检测到相关内容）</span>';
+      statsDiv.innerHTML = '';
+      return;
+    }
+    var html = '';
+    for (var i=0; i<items.length; i++) {
+      var item = items[i];
+      var text = typeof item === 'string' ? item : (item.text || item.word || '');
+      var cssClass = 'tag';
+      if (item.type === 'ellipsis') cssClass += ' ellipsis';
+      else if (item.type === 'gibberish') cssClass += ' ellipsis';
+      else if (item.type === 'foreshadow' || item.anomalyScore > 0.4) cssClass += ' foreshadow';
+      else if (type === '综合提取') cssClass += ' composite';
+      var extra = '';
+      if (item.count) extra += ' 出现'+item.count+'次';
+       if (item.anomalyScore) {
+         var a = item.anomalyScore, pct = (typeof a === 'number') ? a : (a && a.toConfidence ? a.toConfidence() : (a && a.toNumber ? a.toNumber()/256 : 0));
+         pct = Math.max(0, Math.min(1, pct));
+         extra += ' 异常度'+Math.round(pct*100)+'%';
+       }
+      if (item.reasons && item.reasons.length) extra += ' ['+item.reasons.join(',')+']';
+      html += '<span class="'+cssClass+'" title="'+escapeHtml(extra)+'">'+escapeHtml(text)+'</span>';
+    }
+    outputDiv.innerHTML = html;
+    statsDiv.innerHTML = '类型：'+type+' | 结果数：'+items.length + (extraStats ? ' | ' + extraStats : '');
+  }
+
+  // 对外暴露的方法
+  function doStandard() {
+    var input = document.getElementById('inputText').value.trim();
+    if (!input) { document.getElementById('resultDisplay').innerHTML = '请输入文本。'; return; }
+    var items = standardExtract(input);
+    displayResults(items, '标准提取');
+  }
+  function doReflect() {
+    var input = document.getElementById('inputText').value.trim();
+    if (!input) { document.getElementById('resultDisplay').innerHTML = '请输入文本。'; return; }
+    if (!document.getElementById('enableReflect').checked) { document.getElementById('resultDisplay').innerHTML = '<span style="color:#999;">反射提取已关闭。</span>'; return; }
+    poolUsage = {};
+    var items = reflectExtract(input);
+    displayResults(items, '反射提取');
+  }
+  function doComposite() {
+    var input = document.getElementById('inputText').value.trim();
+    if (!input) { document.getElementById('resultDisplay').innerHTML = '请输入文本。'; return; }
+    if (!document.getElementById('enableReflect').checked) { document.getElementById('resultDisplay').innerHTML = '<span style="color:#999;">反射提取已关闭，无法使用综合模式。</span>'; return; }
+    var protagName = document.getElementById('protagName').value.trim();
+    var protagSpecies = document.getElementById('protagSpecies').value.trim();
+    var protagLevel = document.getElementById('protagLevel').value.trim();
+    var enableInject = document.getElementById('compositeInject').checked;
+    var items = compositeExtract(input, protagName, protagSpecies, protagLevel, enableInject);
+    displayResults(items, '综合提取');
+  }
+  function doForeshadow() {
+    var input = document.getElementById('inputText').value.trim();
+    if (!input) { document.getElementById('resultDisplay').innerHTML = '请输入文本。'; return; }
+    if (!document.getElementById('enableForeshadow').checked) { document.getElementById('resultDisplay').innerHTML = '<span style="color:#999;">伏笔扫描已关闭。</span>'; return; }
+    var items = foreshadowScan(input);
+    var formatted = [];
+    for (var i=0; i<items.length; i++) {
+      formatted.push({
+        text: (items[i].anomalyScore>0.5?'🔴 ':'🟡 ')+items[i].word,
+        count: items[i].count,
+        anomalyScore: items[i].anomalyScore,
+        reasons: items[i].reasons,
+        type: 'foreshadow'
+      });
+    }
+    displayResults(formatted, '伏笔异常扫描');
+  }
+  function doSilence() {
+    var input = document.getElementById('inputText').value.trim();
+    if (!input) { document.getElementById('resultDisplay').innerHTML = '请输入文本。'; return; }
+    if (!document.getElementById('enableSilence').checked) { document.getElementById('resultDisplay').innerHTML = '<span style="color:#999;">乱码分析已关闭。</span>'; return; }
+    var items = silenceAndGibberishAnalyze(input);
+    displayResults(items, '无语/乱码分析');
+  }
+  function doFullAnalysis() {
+    var input = document.getElementById('inputText').value.trim();
+    if (!input) { document.getElementById('resultDisplay').innerHTML = '请输入文本。'; return; }
+    var all = [];
+    if (document.getElementById('enableReflect').checked) {
+      poolUsage = {};
+      var r = reflectExtract(input);
+      for (var i=0; i<r.length; i++) all.push({text:r[i], type:'reflect'});
+    }
+    var s = standardExtract(input);
+    for (var j=0; j<s.length; j++) all.push({text:s[j], type:'standard'});
+    if (document.getElementById('enableForeshadow').checked) {
+      var f = foreshadowScan(input);
+      for (var k=0; k<f.length; k++) all.push({text:'📌 '+f[k].word, count:f[k].count, anomalyScore:f[k].anomalyScore, type:'foreshadow'});
+    }
+    if (document.getElementById('enableSilence').checked) {
+      var sil = silenceAndGibberishAnalyze(input);
+      for (var l=0; l<sil.length; l++) all.push(sil[l]);
+    }
+    displayResults(all, '全量分析');
+  }
+
+  // 页面初始化，检测降级模式
+  function init() {
+    var params = (function() {
+      var q = window.location.search.substring(1);
+      var p = {};
+      if (q) {
+        var pairs = q.split('&');
+        for (var i=0; i<pairs.length; i++) {
+          var kv = pairs[i].split('=');
+          p[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+        }
+      }
+      return p;
+    })();
+    var notice = document.getElementById('fallbackNotice');
+    if (params['auto'] === 'ie') {
+      notice.style.display = 'block';
+      notice.innerHTML = 'ℹ️ IE 兼容模式已启用。所有核心功能均可在 IE11 下正常运行。';
+    } else if (params['mode'] === 'fallback') {
+      notice.style.display = 'block';
+      notice.innerHTML = '⚠️ 当前为精简模式，部分功能不可用。如需完整功能，请<a href="../prompt-tool-v8.8.1.html" style="color:#856404;font-weight:600;">返回主工具</a>。';
+    }
+    document.getElementById('resultDisplay').innerHTML = '<span style="color:#888;">就绪。输入文本，点击按钮分析。</span>';
+  }
+
+  return {
+    doStandard: doStandard,
+    doReflect: doReflect,
+    doComposite: doComposite,
+    doForeshadow: doForeshadow,
+    doSilence: doSilence,
+    doFullAnalysis: doFullAnalysis,
+    init: init
+  };
+})();
+
+// 启动
+window.onload = app.init;
+</script>
+</body>
+</html>

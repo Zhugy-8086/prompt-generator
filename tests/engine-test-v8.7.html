@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>引擎验证 · V8.7.8（分组调试版）</title>
+    <style>
+        :root {
+            --bg: #f8f9fa; --card: #fff; --text: #2c3e50; --border: #dee2e6;
+            --pass: #27ae60; --fail: #c0392b; --warn: #f39c12;
+        }
+        .dark-mode {
+            --bg: #1a1a2e; --card: #252540; --text: #e0e0e0; --border: #3a3a5c;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text);
+            padding: 20px; display: flex; justify-content: center;
+        }
+        .container { max-width: 960px; width: 100%; }
+        h1 { margin-bottom: 4px; }
+        .subtitle { font-size: 0.8rem; color: #888; margin-bottom: 16px; }
+        .summary { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+        .summary-item {
+            background: var(--card); border-radius: 8px; padding: 12px 18px;
+            border: 1px solid var(--border); min-width: 100px; text-align: center;
+        }
+        .summary-item .num { font-size: 2rem; font-weight: 700; }
+        .summary-item .num.pass { color: var(--pass); }
+        .summary-item .num.fail { color: var(--fail); }
+        .test-block {
+            background: var(--card); border-radius: 10px; padding: 14px;
+            margin-bottom: 12px; border: 1px solid var(--border); cursor: pointer;
+        }
+        .test-block.selected { background: #e3f2fd; border-left: 4px solid #2196f3; }
+        .test-block.pass { border-left: 4px solid var(--pass); }
+        .test-block.fail { border-left: 4px solid var(--fail); }
+        .test-block h3 { font-size: 0.9rem; margin-bottom: 4px; }
+        .test-block .input { font-size: 0.8rem; color: #888; margin-bottom: 6px; word-break: break-all; }
+        .btn-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        button {
+            padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--card); color: var(--text); cursor: pointer; font-size: 0.85rem;
+        }
+        button.primary { background: #4a90d9; color: #fff; border: none; }
+        .debug-panel {
+            background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+            padding: 12px; margin-bottom: 16px;
+        }
+        .debug-panel h3 { margin-bottom: 8px; font-size: 0.9rem; }
+        .breakpoint-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+        .breakpoint-item { display: flex; align-items: center; gap: 4px; background: var(--bg); padding: 2px 8px; border-radius: 12px; }
+        .step-log { background: var(--bg); padding: 8px; border-radius: 8px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; }
+        .step-log pre { margin: 0; white-space: pre-wrap; }
+        .group-badge { margin-left: 8px; font-size: 0.7rem; background: var(--border); padding: 2px 6px; border-radius: 12px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧪 引擎功能验证（分组调试版）</h1>
+    <p class="subtitle">基础组 · 特效组 · 情绪组 · 长上下文组 | 支持断点单步调试</p>
+
+    <div id="backLinkArea"></div>
+    <div id="moduleBanner"></div>
+
+    <!-- 调试控制台 -->
+    <div class="debug-panel">
+        <h3>🐞 调试控制台</h3>
+        <div class="btn-row">
+            <button id="debugSingleBtn" class="primary">▶ 调试选中用例（单步）</button>
+            <button id="debugWithBreakpointsBtn">🎯 调试（使用断点）</button>
+            <button id="exportLogBtn">📋 导出步骤日志</button>
+            <button id="clearLogBtn">🗑️ 清空日志</button>
+        </div>
+        <div>
+            <label><input type="checkbox" id="stepModeCheckbox"> 单步模式（每一步都暂停）</label>
+            <span style="margin-left: 12px;">断点设置：</span>
+            <div id="breakpointContainer" class="breakpoint-list"></div>
+        </div>
+        <div id="stepLogContainer" style="margin-top: 8px; display: none;">
+            <div style="font-weight:600;">📜 步骤日志</div>
+            <div id="stepLogContent" class="step-log"></div>
+        </div>
+    </div>
+
+    <!-- 分组按钮行 -->
+    <div class="btn-row">
+        <button onclick="loadTestGroup('basic')">📁 基础组</button>
+        <button onclick="loadTestGroup('special')">✨ 特效组</button>
+        <button onclick="loadTestGroup('emotion')">😭 情绪组</button>
+        <button onclick="loadTestGroup('longcontext')">🔗 长上下文组</button>
+        <button onclick="loadTestGroup('all')">🔁 全部组</button>
+        <span id="activeGroupName" style="margin-left: auto; font-size:0.8rem;">当前组：基础</span>
+    </div>
+
+    <div class="btn-row">
+        <button class="primary" onclick="runAllTests()">▶ 全部运行</button>
+        <button onclick="runCategory('pool')">变体池</button>
+        <button onclick="runCategory('context')">上下文规则</button>
+        <button onclick="runCategory('ellipsis')">省略号/无语</button>
+        <button onclick="runCategory('gibberish')">乱码规则</button>
+        <button onclick="runCategory('foreshadow')">伏笔检测</button>
+        <button onclick="runCategory('standard')">标准提取</button>
+        <button onclick="runCategory('refresh')">动态刷新</button>
+        <button onclick="runCategory('protagonist')">主角追踪</button>
+        <button onclick="clearResults()">🗑️ 清空</button>
+        <button onclick="document.body.classList.toggle('dark-mode')">🌓</button>
+    </div>
+
+    <div class="summary" id="summary"></div>
+    <div id="results"></div>
+</div>
+
+<!-- ========== 依赖脚本 ========== -->
+<script src="lib/module-checker.js"></script>
+<script src="lib/file-scanner.js"></script>
+  <script src="../modules/flow-inspector.js"></script>
+  <script src="../modules/hpdc-core.js"></script>
+  <script src="../modules/dictionaries.js"></script>
+<script src="../modules/engine-config.js"></script>
+<script src="../modules/eliza-engine/synonym-groups.js"></script>
+<script src="../modules/eliza-engine/utils.js"></script>
+<script src="../modules/eliza-engine/pool-manager.js"></script>
+<script src="../modules/eliza-engine/theme-detector.js"></script>
+<script src="../modules/eliza-engine/dynamic-boost.js"></script>
+<script src="../modules/eliza-engine/builtin-rules.js"></script>
+<script src="../modules/eliza-engine/context-rules.js"></script>
+<script src="../modules/eliza-rules.js"></script>
+<script src="../modules/foreshadow-engine/token-utils.js"></script>
+<script src="../modules/foreshadow-engine/anomaly-scorer.js"></script>
+<script src="../modules/foreshadow-engine/noise-filter.js"></script>
+<script src="../modules/foreshadow-engine/identity-dictionary.js"></script>
+<script src="../modules/foreshadow-engine/species-detector.js"></script>
+<script src="../modules/foreshadow-engine/power-level-detector.js"></script>
+<script src="../modules/foreshadow-engine/acquisition-tracker.js"></script>
+<script src="../modules/foreshadow-engine/identity-merger.js"></script>
+<script src="../modules/foreshadow-engine/protagonist-detector.js"></script>
+<script src="../modules/foreshadow-engine/protagonist-tracker.js"></script>
+<script src="../modules/foreshadow-engine/foreshadow-pool-manager.js"></script>
+<script src="../modules/foreshadow-engine/context-bridge.js"></script>
+<script src="../modules/foreshadow-engine/transition-engine.js"></script>
+<script src="../modules/foreshadow-engine/foreshadow-engine.js"></script>
+<script src="../modules/style-presets.js"></script>
+<script src="../modules/platform-adapters.js"></script>
+
+<!-- 测试用例库 -->
+<script src="scenarios/pool.js"></script>
+<script src="scenarios/context.js"></script>
+<script src="scenarios/ellipsis.js"></script>
+<script src="scenarios/gibberish.js"></script>
+<script src="scenarios/foreshadow.js"></script>
+<script src="scenarios/standard.js"></script>
+<script src="scenarios/refresh.js"></script>
+<script src="scenarios/special-effects.js"></script>
+<script src="scenarios/character-emotion.js"></script>
+<script src="scenarios/long-context.js"></script>
+<script src="scenarios/protagonist.js"></script>
+
+<script>
+// 全局变量
+let allTestCases = [];
+let currentSelectedTestIndex = null;
+let currentStepLog = null;
+
+// 分类映射（原有）
+const categoryToScenarios = {
+    'pool': window.__TestScenarios_pool,
+    'context': window.__TestScenarios_context,
+    'ellipsis': window.__TestScenarios_ellipsis,
+    'gibberish': window.__TestScenarios_gibberish,
+    'foreshadow': window.__TestScenarios_foreshadow,
+    'standard': window.__TestScenarios_standard,
+    'refresh': window.__TestScenarios_refresh,
+    'protagonist': window.__TestScenarios_protagonist,
+    'special': window.__TestScenarios_special,
+    'emotion': window.__TestScenarios_emotion,
+    'longcontext': window.__TestScenarios_longcontext
+};
+const categoryMap = {
+    'pool': '变体池', 'context': '上下文规则', 'ellipsis': '省略号/无语',
+    'gibberish': '乱码规则', 'foreshadow': '伏笔检测', 'standard': '标准提取',
+    'refresh': '动态刷新', 'protagonist': '主角追踪',
+    'special': '特效组', 'emotion': '情绪组', 'longcontext': '长上下文组'
+};
+
+// 模块检测（简化版，保持原有功能）
+function checkModules() {
+    let missing = [];
+    let expected = ['Dictionaries','ElizaRules','ForeshadowEngine'];
+    for (let m of expected) if (!window[m]) missing.push(m);
+    return { missing: missing, totalLoaded: expected.length - missing.length, totalExpected: expected.length, allOk: missing.length === 0 };
+}
+
+// 与主应用行为一致的 standardExtract 函数
+function standardExtract(text) {
+    var dict = window.__DictionariesDomain || window.Dictionaries;
+    var found = new Set();
+    if (dict && dict.entityPatterns) {
+        dict.entityPatterns.forEach(function(p) { p.lastIndex = 0; var m; while ((m = p.exec(text)) !== null) found.add(m[0]); });
+    }
+    if (found.size < 8) {
+        var sentences = text.split(/[。！？；，,、\s]+/).filter(function(s) { return s.length >= 2; });
+        sentences.forEach(function(s) {
+            var raw = s.replace(/[，,；;：:。！？\?！、\s]+/g, ' ').trim();
+            (raw.match(/[一-鿿]{2,4}/g) || []).forEach(function(t) {
+                if (dict && dict.stopWords && !dict.stopWords.has(t) && found.size < 15) found.add(t);
+            });
+            var m; var deP = /[一-鿿]{2,3}的[一-鿿]{2,3}/g;
+            while ((m = deP.exec(s)) !== null) {
+                if (dict && dict.stopWords && !dict.stopWords.has(m[0]) && found.size < 18) found.add(m[0]);
+            }
+        });
+    }
+    return Array.from(found).sort(function(a, b) { return b.length - a.length || a.localeCompare(b); }).slice(0, 20);
+}
+
+// 运行单个测试（复用原逻辑）
+function runSingleTest(testCase) {
+    var result = { name: testCase.name, category: testCase.category || '', input: testCase.input, passed: false, actual: [] };
+    try {
+        var mode = testCase.mode || 'eliza';
+        if (mode === 'eliza' || mode === 'context') {
+            var output = window.ElizaRules.extract(testCase.input);
+            result.actual = output.items || [];
+        } else if (mode === 'standard') {
+            var stdItems = standardExtract(testCase.input);
+            result.actual = stdItems.map(function(t) { return { text: t, type: 'single' }; });
+        } else if (mode === 'protagonist') {
+            if (window.__ForeshadowProtagonistDetector && window.__ForeshadowProtagonistDetector.detectIdentityProfiles) {
+                var profiles = window.__ForeshadowProtagonistDetector.detectIdentityProfiles(testCase.input);
+                result.actual = profiles;
+                result.passed = testCase.check(profiles, testCase.input);
+            } else {
+                result.actual = [];
+                result.passed = false;
+            }
+        } else {
+            result.actual = [];
+        }
+        if (mode !== 'protagonist') result.passed = testCase.check(result.actual, testCase.input);
+    } catch(e) { result.error = e.message; result.passed = false; }
+    return result;
+}
+
+function resetTestState() {
+    try { if (window.__ElizaPoolManager) window.__ElizaPoolManager.resetPool(); } catch(e) {}
+    try { if (window.ForeshadowEngine) { window.ForeshadowEngine.resetPool(); window.ForeshadowEngine.setEnabled(true); window.ForeshadowEngine.setMaxItems(50); } } catch(e) {}
+    try { if (window.__ForeshadowProtagonistTracker) window.__ForeshadowProtagonistTracker.reset(); } catch(e) {}
+}
+function runCategory(cat) {
+    resetTestState();
+    var cases = categoryToScenarios[cat] || [];
+    renderResults(cases.map(runSingleTest), categoryMap[cat] || cat);
+}
+function runAllTests() { resetTestState(); renderResults(allTestCases.map(runSingleTest), '全部测试'); }
+function clearResults() { document.getElementById('summary').innerHTML = ''; document.getElementById('results').innerHTML = ''; }
+function escapeHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderResults(results, title) {
+    let passCount = results.filter(r => r.passed).length;
+    let failCount = results.length - passCount;
+    document.getElementById('summary').innerHTML = `
+        <div class="summary-item"><div class="num pass">${passCount}</div>通过</div>
+        <div class="summary-item"><div class="num fail">${failCount}</div>失败</div>
+        <div class="summary-item"><div class="num">${results.length}</div>总计</div>
+        <div class="summary-item">${title || '全部'}</div>`;
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.innerHTML = results.map((r, idx) => `
+        <div class="test-block ${r.passed ? 'pass' : 'fail'}" onclick="selectTest(${idx})" data-index="${idx}">
+            <h3>${r.passed ? '✅' : '❌'} ${r.name} ${r.category ? `<span class="group-badge">[${categoryMap[r.category]||r.category}]</span>` : ''}</h3>
+            ${r.input ? `<div class="input">输入：${escapeHtml(r.input.substring(0,150))}</div>` : ''}
+            <div class="actual">结果：<b>${escapeHtml((r.actual.map(i => i.text || i.name || '').join('、')||'（无产出）').substring(0,250))}</b></div>
+            ${r.error ? `<div style="color:var(--fail);font-size:0.75rem;">错误：${r.error}</div>` : ''}
+        </div>
+    `).join('');
+}
+function selectTest(index) {
+    currentSelectedTestIndex = index;
+    document.querySelectorAll('.test-block').forEach((el, i) => {
+        if (i == index) el.classList.add('selected');
+        else el.classList.remove('selected');
+    });
+}
+
+// ========== 分组逻辑 ==========
+const testGroups = { basic: [], special: [], emotion: [], longcontext: [] };
+let currentGroup = 'basic';
+
+function loadTestCasesToGroups() {
+    // 基础组：原有所有场景（pool,context,ellipsis,gibberish,foreshadow,standard,refresh,protagonist）
+    let basicCases = [];
+    const basicCats = ['pool','context','ellipsis','gibberish','foreshadow','standard','refresh','protagonist'];
+    for (let cat of basicCats) {
+        if (categoryToScenarios[cat]) {
+            basicCases.push(...categoryToScenarios[cat].map(tc => ({ ...tc, category: cat })));
+        }
+    }
+    testGroups.basic = basicCases;
+    // 特殊组
+    if (window.__TestScenarios_special) testGroups.special = window.__TestScenarios_special.map(tc => ({ ...tc, category: 'special' }));
+    // 情绪组
+    if (window.__TestScenarios_emotion) testGroups.emotion = window.__TestScenarios_emotion.map(tc => ({ ...tc, category: 'emotion' }));
+    // 长上下文组
+    if (window.__TestScenarios_longcontext) testGroups.longcontext = window.__TestScenarios_longcontext.map(tc => ({ ...tc, category: 'longcontext' }));
+}
+
+function loadTestGroup(groupName) {
+    if (!testGroups[groupName] && groupName !== 'all') return;
+    currentGroup = groupName;
+    if (groupName === 'all') {
+        let all = [];
+        for (let g in testGroups) all.push(...testGroups[g]);
+        allTestCases = all;
+        document.getElementById('activeGroupName').innerText = `当前组：全部 (${all.length} 个)`;
+    } else {
+        allTestCases = testGroups[groupName];
+        document.getElementById('activeGroupName').innerText = `当前组：${groupName} (${allTestCases.length} 个)`;
+    }
+    renderResults([], `加载完成，共 ${allTestCases.length} 个用例`);
+    currentSelectedTestIndex = null;
+    if (window.FlowInspector) renderBreakpointList();
+}
+
+// ========== 调试功能 ==========
+async function debugSelectedTest(useBreakpoints = false) {
+    if (currentSelectedTestIndex === null) { alert('请先点击一个测试用例选中它'); return; }
+    const testCase = allTestCases[currentSelectedTestIndex];
+    if (!testCase) { alert('未找到测试用例'); return; }
+    if (!window.FlowInspector) { alert('FlowInspector 未加载'); return; }
+    const stepMode = document.getElementById('stepModeCheckbox').checked;
+    let breakOnSteps = [];
+    if (useBreakpoints) {
+        document.querySelectorAll('.breakpoint-item input:checked').forEach(cb => breakOnSteps.push(cb.value));
+    }
+
+    const context = { 
+        text: testCase.input, 
+        mode: testCase.mode || 'eliza',
+        dict: window.__DictionariesDomain || window.Dictionaries,
+        errors: [],
+        _textLength: testCase.input.length
+    };
+    const stepLogDiv = document.getElementById('stepLogContainer');
+    const stepLogContent = document.getElementById('stepLogContent');
+    stepLogDiv.style.display = 'block';
+    stepLogContent.innerHTML = '<div>执行中...</div>';
+
+    try {
+        const result = await window.FlowInspector.runStepByStep(context, {
+            stepMode: stepMode,
+            breakOnStep: breakOnSteps,
+            onStep: async (stepName, stepResult, ctx) => {
+                stepLogContent.innerHTML += `<div>[${new Date().toLocaleTimeString()}] 步骤: ${stepName} → ${stepResult}</div>`;
+                stepLogContent.scrollTop = stepLogContent.scrollHeight;
+                return true;
+            },
+            onBreakpoint: async (stepName, ctx) => confirm(`断点停在步骤: ${stepName}\n继续执行？`)
+        });
+        if (!result.passed) {
+            stepLogContent.innerHTML += `<div style="color:red;">⛔ 失败于步骤: ${result.failedStep}</div>`;
+            stepLogContent.innerHTML += `<div>错误: ${result.errors.join('; ')}</div>`;
+            if (result.aborted) stepLogContent.innerHTML += `<div>⚠️ 用户中断</div>`;
+        } else {
+            stepLogContent.innerHTML += `<div style="color:green;">✅ 所有步骤通过</div>`;
+        }
+        currentStepLog = result.stepLog;
+        const testBlocks = document.querySelectorAll('.test-block');
+        if (testBlocks[currentSelectedTestIndex]) testBlocks[currentSelectedTestIndex].style.borderLeftColor = result.passed ? '#27ae60' : '#c0392b';
+    } catch(e) {
+        stepLogContent.innerHTML += `<div style="color:red;">调试异常: ${e.message}</div>`;
+        console.error(e);
+    }
+}
+
+function exportStepLog() {
+    if (!currentStepLog && window.FlowInspector) currentStepLog = window.FlowInspector.exportLastStepLog();
+    if (!currentStepLog || currentStepLog.length === 0) { alert('无步骤日志'); return; }
+    const json = JSON.stringify(currentStepLog, function(k, v) { return typeof v === 'bigint' ? v.toString() + 'n' : v; }, 2);
+    const blob = new Blob([json], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `step_log_${new Date().toISOString().slice(0,19)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+function registerInspectorSteps() {
+    const FI = window.FlowInspector;
+    if (!FI) return;
+    FI.clearSteps();
+    FI.registerStep('词库加载', ctx => !!(ctx.dict && ctx.dict.entityPatterns));
+    FI.registerStep('提取模式', ctx => ctx.mode === 'standard' || ctx.mode === 'eliza' || ctx.mode === 'context');
+    FI.registerStep('提取执行', ctx => { try { window.ElizaRules.extract(ctx.text); return true; } catch(e) { return false; } });
+    FI.registerStep('提取结果非空', ctx => { let res = window.ElizaRules.extract(ctx.text); return res.items && res.items.length > 0; });
+    FI.registerStep('伏笔扫描', ctx => {
+        if (!window.ForeshadowEngine) return true;
+        try { window.ForeshadowEngine.scan(ctx.text, {}); return true; } catch(e) { return false; }
+    });
+}
+
+function renderBreakpointList() {
+    const stepNames = window.FlowInspector ? window.FlowInspector.getStepNames() : [];
+    const container = document.getElementById('breakpointContainer');
+    if (!stepNames.length) {
+        container.innerHTML = '<span style="color:#888;">尚未注册步骤，请先运行一次任意测试</span>';
+        return;
+    }
+    container.innerHTML = stepNames.map(name => `
+        <label class="breakpoint-item">
+            <input type="checkbox" value="${name}"> ${name}
+        </label>
+    `).join('');
+}
+
+// 页面初始化
+window.onload = function() {
+    // 设置日期
+    const now = new Date();
+    document.getElementById('testDate') && (document.getElementById('testDate').textContent = now.toLocaleString());
+    // 模块检测
+    const moduleReport = checkModules();
+    const bannerDiv = document.getElementById('moduleBanner');
+    if (bannerDiv) {
+        if (moduleReport.allOk) bannerDiv.innerHTML = '<div style="background:#d4edda;padding:8px;border-radius:8px;">✅ 所有模块加载正常</div>';
+        else bannerDiv.innerHTML = '<div style="background:#f8d7da;padding:8px;border-radius:8px;">⚠️ 部分模块缺失，请检查依赖</div>';
+    }
+
+    // 加载分组
+    loadTestCasesToGroups();
+    loadTestGroup('basic');
+
+    // 注册按钮事件
+    document.getElementById('debugSingleBtn').onclick = () => debugSelectedTest(false);
+    document.getElementById('debugWithBreakpointsBtn').onclick = () => debugSelectedTest(true);
+    document.getElementById('exportLogBtn').onclick = exportStepLog;
+    document.getElementById('clearLogBtn').onclick = () => { if(window.FlowInspector) window.FlowInspector.clearLogCache(); document.getElementById('stepLogContent').innerHTML = ''; currentStepLog = null; };
+
+    // 预注册步骤
+    registerInspectorSteps();
+    renderBreakpointList();
+
+    // 伏笔引擎初始化
+    if (window.ForeshadowEngine) {
+        window.ForeshadowEngine.resetPool();
+        window.ForeshadowEngine.setEnabled(true);
+        window.ForeshadowEngine.setMaxItems(50);
+    }
+    if (window.__ForeshadowProtagonistTracker) window.__ForeshadowProtagonistTracker.reset();
+};
+</script>
+</body>
+</html>

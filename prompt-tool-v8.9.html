@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+  // 检测 IE 浏览器，自动跳转到精简版
+  (function() {
+    var ua = navigator.userAgent;
+    var isIE = /Trident\/|MSIE /.test(ua);
+    if (isIE) {
+      if (window.location.href.indexOf('eliza-ie11.html') === -1) {
+        window.location.replace('tests/eliza-ie11.html?auto=ie');
+      }
+    }
+  })();
+</script>
+    <title>结构化提示词生成器 v8.9</title>
+    <link rel="stylesheet" href="ui/styles.css">
+    <style>
+        :root {
+            --bg: #f8f9fa; --card: #ffffff; --text: #2c3e50; --border: #dee2e6;
+            --accent: #4a90d9; --accent-hover: #357abd; --danger: #c0392b;
+            --shadow: 0 4px 12px rgba(0,0,0,0.05); --tag-bg: #e8f0fe;
+            --tag-text: #4a90d9; --output-bg: #f1f5f9; --warning-bg: #fff3cd;
+            --warning-border: #ffc107; --override-border: #f39c12;
+        }
+        .dark-mode {
+            --bg: #1a1a2e; --card: #252540; --text: #e0e0e0; --border: #3a3a5c;
+            --accent: #6ea8fe; --accent-hover: #5a94e0; --shadow: 0 4px 12px rgba(0,0,0,0.3);
+            --tag-bg: #2a2a4a; --tag-text: #6ea8fe; --output-bg: #1e1e35;
+            --warning-bg: #3d3520; --warning-border: #8a7020;
+            --override-border: #d68910;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg); color: var(--text); padding: 10px;
+            display: flex; justify-content: center; align-items: flex-start; min-height: 100vh;
+            transition: background 0.3s, color 0.3s;
+        }
+        .container {
+            max-width: 800px; width: 100%; background: var(--card); border-radius: 16px;
+            box-shadow: var(--shadow); padding: 20px; transition: background 0.3s, box-shadow 0.3s;
+        }
+        .loading-fallback { text-align: center; padding: 40px; color: #888; }
+    </style>
+
+    <!-- ==================== v8.9 HC+level 配置预初始化 ====================
+         必须在所有模块之前执行，确保 hpdc-core.js 加载时配置已就绪。
+         即使 init.js 也包含这段逻辑，这里作为最优先的安全网。 -->
+    <script>
+    (function() {
+        var defaultConfig = { fracLayers: 6, mode: 'hybrid', saturation: true };
+        try {
+            var saved = localStorage.getItem('hpdcConfig');
+            window.HPDC_CONFIG = saved ? JSON.parse(saved) : defaultConfig;
+        } catch(e) {
+            window.HPDC_CONFIG = defaultConfig;
+        }
+    })();
+    </script>
+</head>
+<body>
+<div class="container" id="app-root">
+    <div class="loading-fallback">模块加载中...</div>
+</div>
+
+<!-- ==================== 加载进度监控（无 defer，最先执行） ==================== -->
+<script src="ui/module-loader.js"></script>
+
+<!-- ==================== 引擎核心 ==================== -->
+<!-- ★ v8.9 新增：HPDC 数值体系核心，必须最先加载 -->
+<script src="modules/hpdc-core.js" defer></script>
+<script src="modules/dictionaries.js" defer></script>
+<!-- ★ v8.9 新增：领域投票器，依赖 hpdc-core + dictionaries -->
+<script src="modules/domain-voter.js" defer></script>
+<script src="modules/engine-config.js" defer></script>
+
+<!-- ==================== ELIZA 反射引擎 ==================== -->
+<script src="modules/eliza-engine/synonym-groups.js" defer></script>
+<script src="modules/eliza-engine/utils.js" defer></script>
+<script src="modules/eliza-engine/pool-manager.js" defer></script>
+<script src="modules/eliza-engine/theme-detector.js" defer></script>
+<script src="modules/eliza-engine/dynamic-boost.js" defer></script>
+<script src="modules/eliza-engine/builtin-rules.js" defer></script>
+<script src="modules/eliza-engine/context-rules.js" defer></script>
+<script src="modules/eliza-rules.js" defer></script>
+
+<!-- ==================== 伏笔引擎 ==================== -->
+<script src="modules/foreshadow-engine/token-utils.js" defer></script>
+<script src="modules/foreshadow-engine/anomaly-scorer.js" defer></script>
+<script src="modules/foreshadow-engine/noise-filter.js" defer></script>
+<script src="modules/foreshadow-engine/identity-dictionary.js" defer></script>
+<!-- ★ V8.8 新增检测器 -->
+<script src="modules/foreshadow-engine/species-detector.js" defer></script>
+<script src="modules/foreshadow-engine/power-level-detector.js" defer></script>
+<script src="modules/foreshadow-engine/acquisition-tracker.js" defer></script>
+<script src="modules/foreshadow-engine/identity-merger.js" defer></script>
+<!-- 主角检测 + 追踪器 -->
+<script src="modules/foreshadow-engine/protagonist-detector.js" defer></script>
+<script src="modules/foreshadow-engine/protagonist-tracker.js" defer></script>
+<!-- ★ 重命名后的伏笔词库管理器 -->
+<script src="modules/foreshadow-engine/foreshadow-pool-manager.js" defer></script>
+<!-- ★ V8.8 桥梁模块 -->
+<script src="modules/foreshadow-engine/context-bridge.js" defer></script>
+<script src="modules/foreshadow-engine/transition-engine.js" defer></script>
+<script src="modules/foreshadow-engine/foreshadow-engine.js" defer></script>
+
+<!-- ==================== 风格/平台模块 ==================== -->
+<script src="modules/style-presets.js" defer></script>
+<script src="modules/platform-adapters.js" defer></script>
+
+<!-- ==================== UI 模块 ==================== -->
+<script src="ui/ui-utils.js" defer></script>
+<script src="ui/app-skeleton.js" defer></script>
+<script src="ui/mode-manager.js" defer></script>
+<script src="ui/extract-manager.js" defer></script>
+<script src="ui/form-bindings.js" defer></script>
+<script src="ui/negative-panel.js" defer></script>
+<script src="ui/output-panel.js" defer></script>
+
+<!-- ==================== 流程检测模块 ==================== -->
+<script src="modules/flow-inspector.js" defer></script>
+
+<!-- ==================== 初始化入口 ==================== -->
+<script src="ui/init.js" defer></script>
+</body>
+</html>

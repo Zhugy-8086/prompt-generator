@@ -1,0 +1,42 @@
+prompt-tool-v8.7.html              ← 主文件（HTML骨架+加载顺序）
+│
+├── modules/
+│   ├── dictionaries.js            ← 分册化词库
+│   ├── engine-config.js           ← ★ 新增：引擎配置管理器
+│   │
+│   ├── eliza-engine/              ← Eliza 反射引擎子模块
+│   │   ├── synonym-groups.js
+│   │   ├── utils.js
+│   │   ├── pool-manager.js
+│   │   ├── theme-detector.js
+│   │   ├── dynamic-boost.js
+│   │   ├── builtin-rules.js
+│   │   └── context-rules.js
+│   │
+│   ├── eliza-rules.js             ← Eliza 索引组装文件
+│   │
+│   ├── foreshadow-engine/         ← ★ 伏笔引擎（已拆分）
+│   │   ├── token-utils.js
+│   │   ├── anomaly-scorer.js
+│   │   ├── noise-filter.js
+│   │   ├── protagonist-detector.js
+│   │   ├── pool-manager.js
+│   │   └── foreshadow-engine.js   ← 伏笔索引组装文件
+│   │
+│   ├── flow-inspector.js          ← ★ 流程检测器（预留）
+│   ├── style-presets.js           ← 风格预设
+│   └── platform-adapters.js       ← 平台适配器
+│
+├── ui/
+│   ├── styles.css                 ← 全部样式
+│   ├── ui-utils.js                ← 通用DOM工具
+│   ├── mode-manager.js            ← 模式切换、多镜头管理
+│   ├── extract-manager.js         ← 关键词提取、反射、伏笔控制
+│   ├── form-bindings.js           ← 表单事件、风格标签、场景模板
+│   ├── negative-panel.js          ← 负面提示词面板
+│   ├── output-panel.js            ← 输出面板、复制、历史
+│   └── init.js                    ← 初始化入口
+│
+└── tests/                         ← 测试工具（未更新）
+    ├── eliza-ie11.html
+    └── engine-test-v8.7.html
